@@ -86,6 +86,16 @@ jobs:
         echo "- **Runner OS**: ${{ runner.os }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
 
+    - name: Upload Windows executable artifact
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ewr-windows-x64-ci
+        path: |
+          ewr.exe
+          database.json
+        retention-days: 14
+
   release:
     name: Publish draft release
     needs: [verify-version, build-and-test]

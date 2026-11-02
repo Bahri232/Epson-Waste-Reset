@@ -1,0 +1,113 @@
+name: Build Windows Executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Publish as a GitHub Release (draft)'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'cli/**'
+      - 'CMakeLists.txt'
+      - 'database.json'
+      - '.github/workflows/build-exe.yml'
+  pull_request:
+    branches: [ "main", "master" ]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'cli/**'
+      - 'CMakeLists.txt'
+      - 'database.json'
+      - '.github/workflows/build-exe.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build Windows EXE (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DEWR_BUILD_TESTS=OFF
+
+      - name: Build ewr.exe
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ".\ewr.exe")) {
+            Write-Error "ewr.exe was not found in the repository root after build."
+            exit 1
+          }
+          $hash = (Get-FileHash -Path ".\ewr.exe" -Algorithm SHA256).Hash
+          $size = (Get-Item ".\ewr.exe").Length
+          Write-Host "ewr.exe built successfully!"
+          Write-Host "Size: $size bytes"
+          Write-Host "SHA256: $hash"
+          "EXE_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "EXE_SIZE=$size" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Prepare distribution package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "dist\ewr-windows-x64" -Force | Out-Null
+          Copy-Item "ewr.exe" -Destination "dist\ewr-windows-x64\"
+          Copy-Item "database.json" -Destination "dist\ewr-windows-x64\"
+          if (Test-Path "README.md") { Copy-Item "README.md" -Destination "dist\ewr-windows-x64\" }
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination "dist\ewr-windows-x64\" }
+          if (Test-Path "build\Release\ewrc.dll") {
+            Copy-Item "build\Release\ewrc.dll" -Destination "dist\ewr-windows-x64\"
+          }
+          Compress-Archive -Path "dist\ewr-windows-x64\*" -DestinationPath "dist\ewr-windows-x64.zip" -Force
+          Write-Host "Package created: dist\ewr-windows-x64.zip"
+
+      - name: Upload ewr.exe and package as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ewr-windows-x64
+          path: |
+            dist/ewr-windows-x64.zip
+            ewr.exe
+            database.json
+          retention-days: 90
+
+      - name: Publish Step Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## 🖨️ Windows Executable Build Complete"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Binary**: \`ewr.exe\`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **File Size**: $($env:EXE_SIZE) bytes"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **SHA256**: \`$($env:EXE_SHA256)\`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Package**: \`ewr-windows-x64.zip\` (includes \`ewr.exe\` and \`database.json\`)"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### 📥 How to Download"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "You can download the compiled executable from the **Artifacts** section at the bottom of this run summary page."
+
+      - name: Create Draft Release (Optional)
+        if: ${{ github.event.inputs.create_release == 'true' || startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            dist/ewr-windows-x64.zip
+            ewr.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
