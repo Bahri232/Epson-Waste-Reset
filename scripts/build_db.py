@@ -776,7 +776,9 @@ def merge_sources(db, facts):
             rows = rows_by_spec.get(spec_name, [])
             cands = {spec_name}
             for r in rows:
-                cands |= {r["title"], r["short"], r["model"]}
+                for s in (r["title"], r["short"], r["model"]):
+                    if s:
+                        cands |= _expand_name_variants(s)
             matched = match_models(idx, cands)
             if not matched:
                 unmatched.append(spec_name)
@@ -827,7 +829,7 @@ def merge_sources(db, facts):
     if gp:
         alias_hits = 0
         for name in gp["names"]:
-            for model in sorted(match_models(idx, [name])):
+            for model in sorted(match_models(idx, _expand_name_variants(name))):
                 if name == model:
                     continue
                 entry = db[model]
@@ -1127,14 +1129,26 @@ def _curated_merge(ours, theirs, diverged, path):
         out = []
         for o in ours:
             kid = json.dumps(o[key])
+            matching_t = None
             if kid in theirs_by:
-                seen.add(kid)
-                out.append(_curated_merge(o, theirs_by[kid], diverged,
-                                          path + [kid]))
+                matching_t = theirs_by[kid]
+            elif key == "bytes":
+                ob = _counter_bytes(o)
+                for t in theirs:
+                    if id(t) not in seen and (_counter_bytes(t) & ob):
+                        matching_t = t
+                        break
+            if matching_t is not None:
+                seen.add(id(matching_t))
+                merged_o = copy.deepcopy(o)
+                merged_t = copy.deepcopy(matching_t)
+                if key == "bytes" and len(matching_t.get("bytes", [])) >= len(o.get("bytes", [])):
+                    merged_o["bytes"] = copy.deepcopy(matching_t["bytes"])
+                out.append(_curated_merge(merged_o, merged_t, diverged, path + [kid]))
             else:
                 out.append(copy.deepcopy(o))
         out.extend(copy.deepcopy(t) for t in theirs
-                   if json.dumps(t[key]) not in seen)
+                   if id(t) not in seen and json.dumps(t[key]) not in seen)
         return out
     if ours != theirs:
         diverged.append(".".join(path))
@@ -1164,11 +1178,11 @@ def release_generated_labels(db, ours):
         entry = db.get(model)
         if not isinstance(body, dict) or not entry:
             continue
-        upstream = {json.dumps(c["bytes"]): c
-                    for g in entry.get("pad_groups", []) for c in g.get("counters", [])}
+        upstream = [c for g in entry.get("pad_groups", []) for c in g.get("counters", [])]
         for group in body.get("pad_groups") or []:
             for counter in group.get("counters") or []:
-                theirs = upstream.get(json.dumps(counter.get("bytes")))
+                cb = _counter_bytes(counter)
+                theirs = next((c for c in upstream if _counter_bytes(c) & cb), None)
                 label = counter.get("desc", "")
                 if (theirs and "slot" in theirs and label != theirs["desc"]
                         and _GENERATED_LABEL.match(label)):

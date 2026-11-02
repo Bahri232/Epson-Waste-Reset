@@ -6853,6 +6853,85 @@ void test_no_model_repeats_a_gauge_label()
     CHECK(repeating == 0);
 }
 
+void test_l3251_waste_reset_model_integrity()
+{
+    std::cout << "[TEST] test_l3251_waste_reset_model_integrity" << std::endl;
+
+    ewr::UniversalGenerator gen;
+    CHECK(gen.LoadDatabase("database.json"));
+
+    const ewr::DbPrinterModel* l3251 = nullptr;
+    const ewr::DbPrinterModel* l3250 = nullptr;
+    const ewr::DbPrinterModel* l3150 = nullptr;
+    for (const auto& m : gen.GetAvailableModels())
+    {
+        if (m.name == "L3251")
+            l3251 = &m;
+        else if (m.name == "L3250")
+            l3250 = &m;
+        else if (m.name == "L3150")
+            l3150 = &m;
+    }
+
+    CHECK(l3251 != nullptr);
+    CHECK(l3250 != nullptr);
+    CHECK(l3150 != nullptr);
+    if (!l3251 || !l3250 || !l3150)
+        return;
+
+    // Keys and addressing parameters
+    CHECK(l3251->rkey == 13898);
+    CHECK(l3251->wkey == "Nbsjcbzb");
+    CHECK(l3251->wkey1 == "Maribaya");
+    CHECK(l3251->rlen == 2);
+    CHECK(l3251->wlen == 2);
+    CHECK(l3251->mem_high == 2047);
+
+    // Commit operation: 0x0100 (256) &= 0xFE (254)
+    CHECK(l3251->HasCloseOps());
+    CHECK(l3251->close_ops.size() == 1);
+    CHECK(l3251->close_ops[0].address == 256);
+    CHECK(l3251->close_ops[0].and_mask == 254);
+    CHECK(l3251->close_ops[0].Apply(0x01) == 0x00);
+    CHECK(l3251->close_ops[0].Apply(0xFF) == 0xFE);
+
+    // Counters: 3 distinct gauges
+    const auto counters = l3251->GetAllCounters();
+    CHECK(counters.size() == 3);
+    if (counters.size() >= 3)
+    {
+        CHECK(counters[0].description == "Main Pad Counter");
+        CHECK(counters[0].max_value == 6346);
+        CHECK(counters[1].description == "Platen Pad Counter");
+        CHECK(counters[1].max_value == 3416);
+        CHECK(counters[2].description == "Waste Counter 3");
+        CHECK(counters[2].max_value == 1300);
+    }
+
+    // Reset sequence addresses & reset values: 14 bytes
+    const auto addrs = l3251->GetAllAddresses();
+    const auto vals = l3251->GetAllResetValues();
+    CHECK(addrs.size() == 14);
+    CHECK(vals.size() == 14);
+
+    // Verify 0x5E (94) on addresses 54, 55, 255
+    bool saw54 = false, saw55 = false, saw255 = false;
+    for (size_t i = 0; i < addrs.size(); ++i)
+    {
+        if (addrs[i] == 54) { CHECK(vals[i] == 0x5E); saw54 = true; }
+        if (addrs[i] == 55) { CHECK(vals[i] == 0x5E); saw55 = true; }
+        if (addrs[i] == 255) { CHECK(vals[i] == 0x5E); saw255 = true; }
+    }
+    CHECK(saw54);
+    CHECK(saw55);
+    CHECK(saw255);
+
+    // Sibling detection: L3251 and L3250 share identical write paths
+    CHECK(l3251->HasSameWritePath(*l3250));
+    // But L3150 is a different generation/write path
+    CHECK(!l3251->HasSameWritePath(*l3150));
+}
+
 // A person sees what happens to the printer, not the fallback ladder: an
 // interface that failed on the way to one that worked used to print "Handshake
 // FAILED" on a reset that succeeded. The rules live in the CLI; --json and
@@ -8319,6 +8398,7 @@ int main()
     test_l3110_shows_both_counters_sharing_a_byte();
     test_counter_names_follow_wicreset_pad_order();
     test_no_model_repeats_a_gauge_label();
+    test_l3251_waste_reset_model_integrity();
     test_snmp_get_request_is_byte_exact();
     test_snmp_response_decoding_is_bounded();
     test_snmp_control_oid_carries_the_read_command();

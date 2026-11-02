@@ -276,6 +276,39 @@ namespace ewr {
 
         bool HasCloseOps() const { return !close_ops.empty(); }
 
+        // True when both models write the exact same bytes, with the same keys,
+        // addresses, and commit steps. Used to recognise hardware siblings
+        // (e.g. L3250 and L3251).
+        bool HasSameWritePath(const DbPrinterModel& other) const
+        {
+            if (rkey != other.rkey || wkey != other.wkey || wkey1 != other.wkey1
+                || rlen != other.rlen || wlen != other.wlen || mem_high != other.mem_high)
+            {
+                return false;
+            }
+
+            if (GetAllAddresses() != other.GetAllAddresses()
+                || GetAllResetValues() != other.GetAllResetValues())
+            {
+                return false;
+            }
+
+            if (close_ops.size() != other.close_ops.size())
+                return false;
+
+            for (size_t i = 0; i < close_ops.size(); ++i)
+            {
+                if (close_ops[i].address != other.close_ops[i].address
+                    || close_ops[i].and_mask != other.close_ops[i].and_mask
+                    || close_ops[i].or_mask != other.close_ops[i].or_mask)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         std::vector<CounterSpec> GetAllCounters() const
         {
             std::vector<CounterSpec> specs;

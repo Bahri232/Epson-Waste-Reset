@@ -1941,6 +1941,21 @@ int main(int argc, char* argv[])
     const bool modelMismatch = !selected.isReplay && !detectedMatch.empty()
                                && selected.smartModel.name != detectedMatch;
 
+    const ewr::DbPrinterModel* detectedModelPtr = nullptr;
+    if (modelMismatch)
+    {
+        for (const auto& opt : options)
+        {
+            if (!opt.isReplay && opt.smartModel.name == detectedMatch)
+            {
+                detectedModelPtr = &opt.smartModel;
+                break;
+            }
+        }
+    }
+    const bool isHardwareSibling = modelMismatch && detectedModelPtr
+                                   && selected.smartModel.HasSameWritePath(*detectedModelPtr);
+
     // Set once the gate below is passed, for the result's `overrides`.
     std::string mismatchPassed;
 
@@ -1948,65 +1963,85 @@ int main(int argc, char* argv[])
     // this printer with nothing saying so. --json has detected_model.
     if (readOnly && modelMismatch)
     {
-        std::cout << "\n[!] The connected printer reports \"" << detectedMdl << "\" (database entry: "
-                  << detectedMatch << "), not " << selected.smartModel.name << "." << std::endl;
-        std::cout << "    Nothing is written in this mode, but what follows is read with "
-                  << selected.smartModel.name << "'s addresses." << std::endl;
+        if (isHardwareSibling)
+        {
+            std::cout << "\n[i] The connected printer reports \"" << detectedMdl << "\" (database entry: "
+                      << detectedMatch << "), which is an identical hardware sibling of "
+                      << selected.smartModel.name << " sharing the same EEPROM layout." << std::endl;
+        }
+        else
+        {
+            std::cout << "\n[!] The connected printer reports \"" << detectedMdl << "\" (database entry: "
+                      << detectedMatch << "), not " << selected.smartModel.name << "." << std::endl;
+            std::cout << "    Nothing is written in this mode, but what follows is read with "
+                      << selected.smartModel.name << "'s addresses." << std::endl;
+        }
     }
 
     if (!readOnly && modelMismatch)
     {
-        std::cout << "\n[!] WARNING: the connected printer reports \"" << detectedMdl << "\""
-                  << " (database entry: " << detectedMatch << ")," << std::endl;
-        std::cout << "    but you selected " << selected.smartModel.name << "." << std::endl;
-        std::cout << "    Writing another model's reset values into the EEPROM can misconfigure the printer." << std::endl;
-
-        // A wrong-model write is the one hazard --yes must never produce, so
-        // here it stops the run instead of standing in for the answer.
-        // --force-yes is the explicit opt-out, and says so in the trace.
-        if (cli.forceYes)
+        if (isHardwareSibling)
         {
-            std::cout << "\n[!] --force-yes: proceeding with " << selected.smartModel.name
-                      << " against a printer that reports \"" << detectedMdl << "\"." << std::endl;
-        }
-        else if (cli.assumeYes)
-        {
-            std::cerr << "\n[!] --yes confirms a reset, it does not overrule the detected model."
-                      << std::endl;
-            std::cerr << "    Drop --model to use " << detectedMatch
-                      << ", re-run without --yes to confirm the mismatch yourself, or pass"
-                      << std::endl;
-            std::cerr << "    --force-yes if you really mean to write " << selected.smartModel.name
-                      << " values to it." << std::endl;
-            JsonFail("model_mismatch", "--model " + selected.smartModel.name
-                                       + " does not match the detected " + detectedMatch + ".");
-            return FinishRun(1);
-        }
-        else if (cli.json)
-        {
-            std::cerr << "\n[!] --model names something other than the printer that answered."
-                      << " Pass --force-yes to overrule it." << std::endl;
-            JsonFail("model_mismatch", "--model " + selected.smartModel.name
-                                       + " does not match the detected " + detectedMatch + ".");
-            return FinishRun(1);
+            std::cout << "\n[i] Note: The connected printer reports \"" << detectedMdl << "\" (database entry: "
+                      << detectedMatch << ")," << std::endl;
+            std::cout << "    which is an identical hardware sibling of " << selected.smartModel.name
+                      << " with the same EEPROM write path. Proceeding safely." << std::endl;
+            mismatchPassed = detectedMatch;
         }
         else
         {
-            std::cout << "\nContinue with " << selected.smartModel.name << " anyway? [y/N]: ";
+            std::cout << "\n[!] WARNING: the connected printer reports \"" << detectedMdl << "\""
+                      << " (database entry: " << detectedMatch << ")," << std::endl;
+            std::cout << "    but you selected " << selected.smartModel.name << "." << std::endl;
+            std::cout << "    Writing another model's reset values into the EEPROM can misconfigure the printer." << std::endl;
 
-            std::string answer;
-            std::getline(std::cin, answer);
-            const std::string a = toLower(answer);
-            if (a != "y" && a != "yes")
+            // A wrong-model write is the one hazard --yes must never produce, so
+            // here it stops the run instead of standing in for the answer.
+            // --force-yes is the explicit opt-out, and says so in the trace.
+            if (cli.forceYes)
             {
-                std::cout << "[i] Aborted before any EEPROM write. Re-run and press Enter to use the" << std::endl;
-                std::cout << "    detected model." << std::endl;
-                JsonFail("blocked", "The model mismatch was declined; nothing was written.");
+                std::cout << "\n[!] --force-yes: proceeding with " << selected.smartModel.name
+                          << " against a printer that reports \"" << detectedMdl << "\"." << std::endl;
+            }
+            else if (cli.assumeYes)
+            {
+                std::cerr << "\n[!] --yes confirms a reset, it does not overrule the detected model."
+                          << std::endl;
+                std::cerr << "    Drop --model to use " << detectedMatch
+                          << ", re-run without --yes to confirm the mismatch yourself, or pass"
+                          << std::endl;
+                std::cerr << "    --force-yes if you really mean to write " << selected.smartModel.name
+                          << " values to it." << std::endl;
+                JsonFail("model_mismatch", "--model " + selected.smartModel.name
+                                           + " does not match the detected " + detectedMatch + ".");
                 return FinishRun(1);
             }
-        }
+            else if (cli.json)
+            {
+                std::cerr << "\n[!] --model names something other than the printer that answered."
+                          << " Pass --force-yes to overrule it." << std::endl;
+                JsonFail("model_mismatch", "--model " + selected.smartModel.name
+                                           + " does not match the detected " + detectedMatch + ".");
+                return FinishRun(1);
+            }
+            else
+            {
+                std::cout << "\nContinue with " << selected.smartModel.name << " anyway? [y/N]: ";
 
-        mismatchPassed = detectedMatch;
+                std::string answer;
+                std::getline(std::cin, answer);
+                const std::string a = toLower(answer);
+                if (a != "y" && a != "yes")
+                {
+                    std::cout << "[i] Aborted before any EEPROM write. Re-run and press Enter to use the" << std::endl;
+                    std::cout << "    detected model." << std::endl;
+                    JsonFail("blocked", "The model mismatch was declined; nothing was written.");
+                    return FinishRun(1);
+                }
+            }
+
+            mismatchPassed = detectedMatch;
+        }
     }
 
     // Fail before any device I/O: the session would only reach the same
