@@ -6860,10 +6860,11 @@ void test_l3251_waste_reset_model_integrity()
     ewr::UniversalGenerator gen;
     CHECK(gen.LoadDatabase("database.json"));
 
+    const std::vector<ewr::DbPrinterModel> models = gen.GetAvailableModels();
     const ewr::DbPrinterModel* l3251 = nullptr;
     const ewr::DbPrinterModel* l3250 = nullptr;
     const ewr::DbPrinterModel* l3150 = nullptr;
-    for (const auto& m : gen.GetAvailableModels())
+    for (const auto& m : models)
     {
         if (m.name == "L3251")
             l3251 = &m;
