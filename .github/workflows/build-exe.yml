@@ -93,10 +93,10 @@ jobs:
         shell: pwsh
         run: |
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## 🖨️ Windows Executable Build Complete"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Binary**: \`ewr.exe\`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Binary**: ewr.exe"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **File Size**: $($env:EXE_SIZE) bytes"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **SHA256**: \`$($env:EXE_SHA256)\`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Package**: \`ewr-windows-x64.zip\` (includes \`ewr.exe\` and \`database.json\`)"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **SHA256**: $($env:EXE_SHA256)"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Package**: ewr-windows-x64.zip (includes ewr.exe and database.json)"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### 📥 How to Download"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "You can download the compiled executable from the **Artifacts** section at the bottom of this run summary page."
